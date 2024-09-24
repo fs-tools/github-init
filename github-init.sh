@@ -2,7 +2,7 @@
 
 # github-init
 # A script to create and manage GitHub repositories, initialize local Git repositories,
-# and link them together with customizable options, including path specification.
+# and link them together with customizable options, including repository name specification.
 
 # Exit immediately if a command exits with a non-zero status
 set -e
@@ -25,6 +25,7 @@ DEFAULT_ORG="fs-tools"
 DEFAULT_PATH="$(pwd)"
 ORG_NAME="$DEFAULT_ORG"
 TARGET_PATH="$DEFAULT_PATH"
+REPO_NAME=""
 PROJECT_NAME=""
 VERBOSE=false
 GITHUB_TOKEN=""
@@ -40,13 +41,15 @@ usage() {
     echo ""
     echo "Options:"
     echo "  -h, --help                Show this help message and exit"
-    echo "  -o, --org <orgName>       Specify the GitHub organization (default: ${DEFAULT_ORG})"
+    echo "  -o, --org <orgName>       Specify the GitHub organization (overrides config)"
+    echo "  -r, --repo <repoName>     Specify the GitHub repository name"
     echo "  -v, --verbose             Enable verbose output"
     echo ""
     echo "Examples:"
     echo "  github-init"
-    echo "  github-init -o fs-random api-interceptor"
-    echo "  github-init --org fs-random --verbose api-interceptor"
+    echo "  github-init -o fs-random -r api-interceptor"
+    echo "  github-init --org fs-random --repo api-interceptor --verbose"
+    echo "  github-init -r api-interceptor"
     exit 1
 }
 
@@ -88,6 +91,15 @@ while [[ "$#" -gt 0 ]]; do
                 shift
             else
                 echo -e "${RED}Error:${NC} --org requires a non-empty option argument."
+                exit 1
+            fi
+            ;;
+        -r|--repo)
+            if [[ -n "$2" && ! "$2" =~ ^- ]]; then
+                REPO_NAME="$2"
+                shift
+            else
+                echo -e "${RED}Error:${NC} --repo requires a non-empty option argument."
                 exit 1
             fi
             ;;
@@ -189,6 +201,29 @@ if [ -z "$GITHUB_TOKEN" ]; then
 fi
 
 # -------------------- #
+#    Repository Name Setup #
+# -------------------- #
+
+# Determine the repository name
+if [ -n "$REPO_NAME" ]; then
+    PROJECT_NAME=$(sanitize_repo_name "$REPO_NAME")
+    log "Repository name provided via option: $PROJECT_NAME"
+elif [ -n "$PROJECT_NAME" ]; then
+    PROJECT_NAME=$(sanitize_repo_name "$PROJECT_NAME")
+    log "Repository name provided as positional argument: $PROJECT_NAME"
+else
+    # Use the current directory's name as the repository name
+    PROJECT_NAME=$(sanitize_repo_name "$(basename "$(pwd)")")
+    log "No repository name provided. Using current directory name: $PROJECT_NAME"
+fi
+
+# Ensure the repository name adheres to the naming conventions
+if [[ ! "$PROJECT_NAME" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
+    echo -e "${RED}Error:${NC} Invalid repository name '${PROJECT_NAME}'. Ensure it's all lowercase, uses single dashes instead of spaces or special characters, and does not contain multiple consecutive dashes."
+    exit 1
+fi
+
+# -------------------- #
 #    Directory Handling  #
 # -------------------- #
 
@@ -196,23 +231,7 @@ prepare_directory() {
     log "Navigating to target directory: $TARGET_PATH"
     cd "$TARGET_PATH"
 
-    # Determine project name if not provided
-    if [ -z "$PROJECT_NAME" ]; then
-        # Use the current directory's name as the project name
-        PROJECT_NAME="$(basename "$(pwd)")"
-        log "No project name provided. Using current directory name: $PROJECT_NAME"
-    else
-        # Sanitize the provided project name
-        PROJECT_NAME=$(sanitize_repo_name "$PROJECT_NAME")
-    fi
-
-    # Ensure the project name adheres to the naming conventions
-    if [[ ! "$PROJECT_NAME" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
-        echo -e "${RED}Error:${NC} Invalid project name '${PROJECT_NAME}'. Ensure it's all lowercase, uses single dashes instead of spaces or special characters, and does not contain multiple consecutive dashes."
-        exit 1
-    fi
-
-    echo -e "${GREEN}Project Name: ${PROJECT_NAME}${NC}"
+    echo -e "${GREEN}Repository Name: ${PROJECT_NAME}${NC}"
 }
 
 # -------------------- #
@@ -230,6 +249,8 @@ preview_actions() {
         echo -e "${YELLOW}- Local Git Repository:${NC} Will be initialized."
     fi
 
+    echo -e "${YELLOW}- .gitignore File:${NC} Will be created if not present."
+    echo -e "${YELLOW}- Initial Commit:${NC} Will be made with message 'init'."
     echo -e "${YELLOW}- Remote Origin:${NC} Will be set to https://github.com/${ORG_NAME}/${PROJECT_NAME}.git"
     echo -e "${GREEN}=========================================${NC}"
 }
@@ -360,10 +381,21 @@ push_repository() {
         echo -e "${GREEN}Remote 'origin' added.${NC}"
     fi
 
+    # Determine default branch
+    DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD | sed 's@^refs/remotes/origin/@@')
+
     # Push to GitHub
     log "Pushing local repository to GitHub..."
-    git push -u origin main || git push -u origin master
-    echo -e "${GREEN}Repository pushed to GitHub successfully.${NC}"
+    if git branch --show-current | grep -q "main\|master"; then
+        CURRENT_BRANCH=$(git branch --show-current)
+    else
+        # If no branch exists, set to main
+        git checkout -b main
+        CURRENT_BRANCH="main"
+    fi
+
+    git push -u origin "$CURRENT_BRANCH"
+    echo -e "${GREEN}Repository pushed to GitHub successfully on branch '${CURRENT_BRANCH}'.${NC}"
 }
 
 # -------------------- #
