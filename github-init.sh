@@ -302,12 +302,48 @@ initialize_git_repo() {
 }
 
 # -------------------- #
-#      Add Remote         #
+#      Create .gitignore  #
 # -------------------- #
 
-add_remote() {
+create_gitignore() {
+    GITIGNORE_FILE=".gitignore"
+    if [ -f "$GITIGNORE_FILE" ]; then
+        echo -e "${YELLOW}Notice:${NC} .gitignore already exists. Skipping creation."
+    else
+        echo -e "${GREEN}Creating .gitignore file...${NC}"
+        cat <<EOL > "$GITIGNORE_FILE"
+node_modules
+.yarn.*
+EOL
+        echo -e "${GREEN}.gitignore created with default contents.${NC}"
+    fi
+}
+
+# -------------------- #
+#    Make Initial Commit #
+# -------------------- #
+
+make_initial_commit() {
+    log "Staging files for initial commit..."
+    git add .
+
+    # Check if there are any changes to commit
+    if git diff --cached --quiet; then
+        echo -e "${YELLOW}Notice:${NC} No changes to commit."
+    else
+        log "Creating initial commit..."
+        git commit -m "init"
+        echo -e "${GREEN}Initial commit created with message 'init'.${NC}"
+    fi
+}
+
+# -------------------- #
+#      Push Repository   #
+# -------------------- #
+
+push_repository() {
     REMOTE_URL="https://github.com/${ORG_NAME}/${PROJECT_NAME}.git"
-    
+
     # Check if remote 'origin' already exists
     if git remote | grep -q "origin"; then
         CURRENT_URL=$(git remote get-url origin)
@@ -323,6 +359,11 @@ add_remote() {
         git remote add origin "$REMOTE_URL"
         echo -e "${GREEN}Remote 'origin' added.${NC}"
     fi
+
+    # Push to GitHub
+    log "Pushing local repository to GitHub..."
+    git push -u origin main || git push -u origin master
+    echo -e "${GREEN}Repository pushed to GitHub successfully.${NC}"
 }
 
 # -------------------- #
@@ -346,7 +387,13 @@ create_github_repo
 # Initialize Git repository
 initialize_git_repo
 
-# Add remote origin
-add_remote
+# Create .gitignore file
+create_gitignore
+
+# Make initial commit
+make_initial_commit
+
+# Add remote origin and push
+push_repository
 
 echo -e "${GREEN}All operations completed successfully.${NC}"
